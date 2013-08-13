@@ -10,121 +10,128 @@ http://archive.ics.uci.edu/ml/datasets/Mushroom
 
 Requirements:
 numpy
-requests        http://docs.python-requests.org/en/latest/
 scikit-learn    http://scikit-learn.org/stable/index.html
 """
 
 import numpy as np
-import os
-import re
-import requests
+import pandas as pd
+from sklearn import cross_validation
 from sklearn import preprocessing
+from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
-
-np.random.seed(42)
-
-names_uri = "http://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.names"
-data_uri = "http://archive.ics.uci.edu/ml/machine-learning-databases/mushroom/agaricus-lepiota.data"
-data_filepath = os.path.basename(data_uri)
+from sklearn.metrics import confusion_matrix
 
 
-def get_attribute_dict():
-    """Return a dictionary mapping the column name to a dictionary containing
-    values for the column index and the value dictionary for that field.
-    This is based on the description available in the names file which serves as a code book.
-    We parse this text rather than hard code it.
-    """
-    attribute_description = """
-0. classification:           edible=e,poisonous=p
-1. cap-shape:                bell=b,conical=c,convex=x,flat=f,knobbed=k,sunken=s
-2. cap-surface:              fibrous=f,grooves=g,scaly=y,smooth=s
-3. cap-color:                brown=n,buff=b,cinnamon=c,gray=g,green=r,pink=p,purple=u,red=e,white=w,yellow=y
-4. bruises:                  bruises=t,no=f
-5. odor:                     almond=a,anise=l,creosote=c,fishy=y,foul=f,musty=m,none=n,pungent=p,spicy=s
-6. gill-attachment:          attached=a,descending=d,free=f,notched=n
-7. gill-spacing:             close=c,crowded=w,distant=d
-8. gill-size:                broad=b,narrow=n
-9. gill-color:               black=k,brown=n,buff=b,chocolate=h,gray=g,green=r,orange=o,pink=p,purple=u,red=e,white=w,yellow=y
-10. stalk-shape:              enlarging=e,tapering=t
-11. stalk-root:               bulbous=b,club=c,cup=u,equal=e,rhizomorphs=z,rooted=r,missing=?
-12. stalk-surface-above-ring: fibrous=f,scaly=y,silky=k,smooth=s
-13. stalk-surface-below-ring: fibrous=f,scaly=y,silky=k,smooth=s
-14. stalk-color-above-ring:   brown=n,buff=b,cinnamon=c,gray=g,orange=o,pink=p,red=e,white=w,yellow=y
-15. stalk-color-below-ring:   brown=n,buff=b,cinnamon=c,gray=g,orange=o,pink=p,red=e,white=w,yellow=y
-16. veil-type:                partial=p,universal=u
-17. veil-color:               brown=n,orange=o,white=w,yellow=y
-18. ring-number:              none=n,one=o,two=t
-19. ring-type:                cobwebby=c,evanescent=e,flaring=f,large=l,none=n,pendant=p,sheathing=s,zone=z
-20. spore-print-color:        black=k,brown=n,buff=b,chocolate=h,green=r,orange=o,purple=u,white=w,yellow=y
-21. population:               abundant=a,clustered=c,numerous=n,scattered=s,several=v,solitary=y
-22. habitat:                  grasses=g,leaves=l,meadows=m,paths=p,urban=u,waste=w,woods=d
-"""
-    regex = re.compile("""(?P<column_index>\d+).\s+(?P<column_name>[\w-]+)\:\s+(?P<values>[\w,=-]+)""")
-    dct = {}
-    for line in attribute_description.split('\n'):
-        match = regex.match(line)
-        if match:
-            column_index = int(match.group('column_index'))
-            column_name = match.group('column_name').replace('-', '_')
-            values = match.group('values')
-            value_dict = {}
-            for value, symbol in [v.split('=') for v in values.split(',')]:
-                value_dict[symbol] = value
-            #print(column_index, column_name, value_dict)
-            dct[column_name] = {'column_index': column_index, 'value_dict': value_dict}
-    return dct
+# set the random seed in order to reproduce results
+RANDOM_SEED = 42
+np.random.seed(RANDOM_SEED)
 
-def get_attributes_from_dict(dct):
-    attributes = []
-    for key, value in sorted(dct.iteritems(), key=lambda (k,v): (v['column_index'],k)):
-        attributes.append(key)
-    return attributes
-
-def retrieve_datafiles():
-    """Retrieve the data files if necessary."""
-    if not os.path.exists(data_filepath):
-        print("retrieving data from {}".format(data_uri))
-        r = requests.get(data_uri)
-        with open(data_filepath, 'w') as f:
-            f.write(r.text)
+# The data has been downloaded from the UCI Machine Learning Repository
+# and edited to make parsing simpler.
+data_filepath = "agaricus-lepiota.expanded.data"
+column_names = ['classification', 'cap_shape', 'cap_surface', 'cap_color', 'bruises', 
+                'odor', 'gill_attachment', 'gill_spacing', 'gill_size', 'gill_color', 
+                'stalk_shape', 'stalk_root', 'stalk_surface_above_ring', 
+                'stalk_surface_below_ring', 'stalk_color_above_ring', 'stalk_color_below_ring', 
+                'veil_type', 'veil_color', 'ring_number', 'ring_type', 'spore_print_color', 
+                'population', 'habitat']
 
 def get_data(filepath, column_names):
-    """Return a tuple (X, y) where X is a numpy matrix representing
-    the parameters and y is a numpy array of the classes."""
-    data = np.genfromtxt(filepath, delimiter=',', names=column_names,
-                         dtype=[(_, np.dtype('S1')) for _ in column_names])
-    X = data[column_names[1:]]
-    y = data[column_names[0]]
+    """Return a tuple (X, y) where X is a Pandas DataFrame representing
+    the parameters and y is a Pandas Series of the classes."""
+    dataframe = pd.read_csv(filepath, names=column_names)
+    X = dataframe[column_names[1:]]
+    y = dataframe[column_names[0]]
     return X, y
-    
-def create_model(X_train, y_train, X_test, y_test):
-    # encode the categorical features as binary features
-#     v = DictVectorizer(sparse=False)
-#     D = []
-#     for column_name in column_names[1:]:
-#         D.append({feature:value for value, feature in enumerate(set(X[column_name].tolist()))})
+
+def one_hot_dataframe(df, column_names, replace=False):
+    """Given a DataFrame of string valued features, perform one-hot encoding.
+    Return the original dataframe (optionally with the original column names removed),
+    the vectorized dataframe, and the vectorizer object (useful for inverse transforming).
+    Adapted from http://stackoverflow.com/questions/15021521/how-to-encode-a-categorical-variable-in-sklearn
+    """
+    vectorizer = DictVectorizer()
+    mkdict = lambda row: dict((col, row[col]) for col in column_names)
+    vectorized_df = pd.DataFrame(vectorizer.fit_transform(df[column_names].apply(mkdict, axis=1)).toarray())
+    vectorized_df.columns = vectorizer.get_feature_names()
+    vectorized_df.index = df.index
+    if replace is True:
+        df = df.drop(column_names, axis=1)
+        df = df.join(vectorized_df)
+    return (df, vectorized_df, vectorizer)
+
 # 
-#     for d in D:
-#         print(d)
-    # encode the categorical independent variables
-    encoder = preprocessing.OneHotEncoder()
-    
-    model = LogisticRegression()
-    model.fit(X_train, y_train)
-    predicted = model.predict(X_test)
-    print(predicted)
-    
+# def one_hot_encode_the_hard_way(X, y):
+#     X, y, label_encoder_dict = label_encode_data(X, y)
+#     # encode the categorical features as binary features
+#     encoder = preprocessing.OneHotEncoder()
+#     encoder.fit(X.to_records(index=False))
+#     X = encoder.transform(X)
+#     print(encoder)
+#     print(encoder.n_values_)
+#     print(encoder.feature_indices_)
+# 
+# def label_encode_data(X, y):
+#     """Use the scikit-learn LabelEncoder to map string labels to integers.
+#     This is a necessary first step to use the learning algorithms in scikit-learn.
+#     Return the transformed X, y, as well as a dictionary mapping each label name
+#     to a LabelEncoder object.  This will be useful when we want to inverse transform
+#     to work with label names later."""
+#     label_encoder_dict = {}
+#     # encode y labels
+#     #label_encoder = preprocessing.LabelEncoder()
+#     #label_encoder.fit(y)
+#     #label_encoder_dict[column_names[0]] = label_encoder
+#     #y = label_encoder.transform(y)
+#     for column_name in column_names[1:]:
+#         label_encoder = preprocessing.LabelEncoder()
+#         label_encoder.fit(X[column_name])
+#         label_encoder_dict[column_name] = label_encoder
+#         X[column_name] = label_encoder.transform(X[column_name])
+#     return X, y, label_encoder_dict
+
+def create_model(X, y, n_iter=4, test_size=0.25):
+    # split the data in train and test using shuffle and split
+    # create an iterator that generates boolean indices for each train/test run
+    ss_iter = cross_validation.ShuffleSplit(len(X), 
+                                            n_iter=n_iter, 
+                                            test_size=test_size, 
+                                            indices=False, 
+                                            random_state=RANDOM_SEED)
+    for train_indices, test_indices in ss_iter:
+        # converting these to lists is much faster than leaving in Pandas DataFrame or Series
+        X_train = X[train_indices].to_records(index=False).tolist()
+        y_train = y[train_indices].tolist()
+        X_test = X[test_indices].to_records(index=False).tolist()
+        y_test = y[test_indices].tolist()
+        print(y_test)
+        model = LogisticRegression()
+        model.fit(X_train, y_train)
+        predicted = model.predict(X_test)
+        #print(model.coef_)
+        #print(model.get_params())
+        #print(model.transform(X_test[0:2]))
+        #print(predicted.tolist())
+        print(model.score(X_test, y_test))
+        print("POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
+        print("EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
+        print(confusion_matrix(y_test, predicted))
+        
+#     X_train, X_test, y_train, y_test = cross_validation.train_test_split(X, 
+#                                                                          y, 
+#                                                                          test_size=test_size,
+#                                                                          random_state=RANDOM_SEED)
+#     model = LogisticRegression()
+#     model.fit(X_train, y_train)
+#     predicted = model.predict(X_test)
+#     print(predicted)
+#     print(model.score(X_test, y_test))
+
 def main(verbose=False):
-    retrieve_datafiles()
-    attribute_dict = get_attribute_dict()
-    column_names = get_attributes_from_dict(attribute_dict)
-    if verbose:
-        print(column_names)
     X, y = get_data(data_filepath, column_names)
-    print(X)
-    print(y)
-    create_model(X, y, X, y)
+    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names[1:])
+    create_model(X_encoded, y)
 
 if __name__=='__main__':
-    main()
+    main(verbose=True)
 
