@@ -10,6 +10,7 @@ http://archive.ics.uci.edu/ml/datasets/Mushroom
 
 Requirements:
 numpy
+pandas
 scikit-learn    http://scikit-learn.org/stable/index.html
 """
 
@@ -60,37 +61,7 @@ def one_hot_dataframe(df, column_names, replace=False):
         df = df.join(vectorized_df)
     return (df, vectorized_df, vectorizer)
 
-# 
-# def one_hot_encode_the_hard_way(X, y):
-#     X, y, label_encoder_dict = label_encode_data(X, y)
-#     # encode the categorical features as binary features
-#     encoder = preprocessing.OneHotEncoder()
-#     encoder.fit(X.to_records(index=False))
-#     X = encoder.transform(X)
-#     print(encoder)
-#     print(encoder.n_values_)
-#     print(encoder.feature_indices_)
-# 
-# def label_encode_data(X, y):
-#     """Use the scikit-learn LabelEncoder to map string labels to integers.
-#     This is a necessary first step to use the learning algorithms in scikit-learn.
-#     Return the transformed X, y, as well as a dictionary mapping each label name
-#     to a LabelEncoder object.  This will be useful when we want to inverse transform
-#     to work with label names later."""
-#     label_encoder_dict = {}
-#     # encode y labels
-#     #label_encoder = preprocessing.LabelEncoder()
-#     #label_encoder.fit(y)
-#     #label_encoder_dict[column_names[0]] = label_encoder
-#     #y = label_encoder.transform(y)
-#     for column_name in column_names[1:]:
-#         label_encoder = preprocessing.LabelEncoder()
-#         label_encoder.fit(X[column_name])
-#         label_encoder_dict[column_name] = label_encoder
-#         X[column_name] = label_encoder.transform(X[column_name])
-#     return X, y, label_encoder_dict
-
-def create_model(X, y, n_iter=4, test_size=0.25):
+def create_model(X, y, n_iter=10, test_size=0.1):
     # split the data in train and test using shuffle and split
     # create an iterator that generates boolean indices for each train/test run
     ss_iter = cross_validation.ShuffleSplit(len(X), 
@@ -98,6 +69,7 @@ def create_model(X, y, n_iter=4, test_size=0.25):
                                             test_size=test_size, 
                                             indices=False, 
                                             random_state=RANDOM_SEED)
+    cm_combined = None
     for train_indices, test_indices in ss_iter:
         # converting these to lists is much faster than leaving in Pandas DataFrame or Series
         X_train = X[train_indices].to_records(index=False).tolist()
@@ -115,17 +87,15 @@ def create_model(X, y, n_iter=4, test_size=0.25):
         print(model.score(X_test, y_test))
         print("POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
         print("EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
-        print(confusion_matrix(y_test, predicted))
-        
-#     X_train, X_test, y_train, y_test = cross_validation.train_test_split(X, 
-#                                                                          y, 
-#                                                                          test_size=test_size,
-#                                                                          random_state=RANDOM_SEED)
-#     model = LogisticRegression()
-#     model.fit(X_train, y_train)
-#     predicted = model.predict(X_test)
-#     print(predicted)
-#     print(model.score(X_test, y_test))
+        cm = confusion_matrix(y_test, predicted)
+        print(cm)
+        if cm_combined is None:
+            cm_combined = cm
+        else:
+            cm_combined += cm
+    cm_df = pd.DataFrame(cm_combined, index=['edible', 'poisonous'], columns=['predicted edible', 'predicted poisonous'])
+    print("combined confusion matrix:")
+    print(cm_df)
 
 def main(verbose=False):
     X, y = get_data(data_filepath, column_names)
