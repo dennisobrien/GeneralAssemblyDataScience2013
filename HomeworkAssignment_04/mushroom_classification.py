@@ -10,10 +10,11 @@ http://archive.ics.uci.edu/ml/datasets/Mushroom
 
 Requirements:
 numpy
-pandas
+pandas version 0.12+
 scikit-learn    http://scikit-learn.org/stable/index.html
 """
 
+import itertools
 import numpy as np
 import pandas as pd
 from sklearn import cross_validation
@@ -22,20 +23,64 @@ from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix
 
+# Silence the deprecation warnings from Pandas 0.12
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # set the random seed in order to reproduce results
 RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
+LABEL_ACTUAL_POSITIVE = 'edible'
+LABEL_ACTUAL_NEGATIVE = 'poisonous'
+LABEL_PREDICTED_POSITIVE = 'predicted edible'
+LABEL_PREDICTED_NEGATIVE = 'predicted poisonous'
+
 # The data has been downloaded from the UCI Machine Learning Repository
 # and edited to make parsing simpler.
 data_filepath = "agaricus-lepiota.expanded.data"
-column_names = ['classification', 'cap_shape', 'cap_surface', 'cap_color', 'bruises', 
+csv_column_names = ['classification', 'cap_shape', 'cap_surface', 'cap_color', 'bruises', 
                 'odor', 'gill_attachment', 'gill_spacing', 'gill_size', 'gill_color', 
                 'stalk_shape', 'stalk_root', 'stalk_surface_above_ring', 
                 'stalk_surface_below_ring', 'stalk_color_above_ring', 'stalk_color_below_ring', 
                 'veil_type', 'veil_color', 'ring_number', 'ring_type', 'spore_print_color', 
                 'population', 'habitat']
+
+def get_precision(confusion_df):
+    #tp = float(confusion_df.iloc[0, 0])
+    #fp = float(confusion_df.iloc[1, 0])
+    tp = float(confusion_df[LABEL_PREDICTED_POSITIVE][LABEL_ACTUAL_POSITIVE])
+    fp = float(confusion_df[LABEL_PREDICTED_POSITIVE][LABEL_ACTUAL_NEGATIVE])
+    precision = tp / (tp + fp)
+    return precision
+
+def get_recall(confusion_df):
+    #tp = float(confusion_df.iloc[0, 0])
+    #fn = float(confusion_df.iloc[0, 1])
+    tp = float(confusion_df[LABEL_PREDICTED_POSITIVE][LABEL_ACTUAL_POSITIVE])
+    fn = float(confusion_df[LABEL_PREDICTED_NEGATIVE][LABEL_ACTUAL_POSITIVE])
+    recall = tp / (tp + fn)
+    return recall
+
+def plot_confusion_matrix_dict(dct, min_precision=0, min_recall=0, auto_scale=False):
+    data = {}
+    features = dct.keys()
+    data['feature'] = [','.join(feature) for feature in features]
+    data['precision'] = [get_precision(dct[feature]) for feature in features]
+    data['recall'] = [get_recall(dct[feature]) for feature in features]
+    df = pd.DataFrame(data)
+    df = df[(df['precision']>=min_precision) & (df['recall']>=min_recall)]
+    #print(df)
+    ax = df.plot(x='precision', y='recall', figsize=(10,8), style='.')#, xlim=(0.0, 1.0), ylim=(0.0, 1.0))
+    if not auto_scale:
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+    ax.set_xlabel('precision (tp / (tp + fp))')
+    ax.set_ylabel('recall (tp / (tp + fn))')
+    ax.set_title('Precision vs. Recall for Given Features')
+    for _i, row in df.iterrows():
+        ax.text(row['precision'], row['recall'], row['feature'], fontsize=8)
+    return df
 
 def get_data(filepath, column_names):
     """Return a tuple (X, y) where X is a Pandas DataFrame representing
@@ -61,7 +106,7 @@ def one_hot_dataframe(df, column_names, replace=False):
         df = df.join(vectorized_df)
     return (df, vectorized_df, vectorizer)
 
-def create_and_test_model(X, y, n_iter=10, test_size=0.1, random_state=RANDOM_SEED):
+def create_and_test_model(X, y, n_iter=10, test_size=0.1, random_state=RANDOM_SEED, verbose=False):
     """Create a model and test using n-fold cross validation.
     Pass random_state=None to override the fixed random seed.
     """
@@ -74,7 +119,6 @@ def create_and_test_model(X, y, n_iter=10, test_size=0.1, random_state=RANDOM_SE
                                             random_state=random_state)
     cm_combined = None
     for n_run, (train_indices, test_indices) in enumerate(ss_iter):
-        print("run {} of {}".format(n_run+1, n_iter))
         # converting these to lists is much faster than leaving in Pandas DataFrame or Series
         X_train = X[train_indices].to_records(index=False).tolist()
         y_train = y[train_indices].tolist()
@@ -84,34 +128,52 @@ def create_and_test_model(X, y, n_iter=10, test_size=0.1, random_state=RANDOM_SE
         model = LogisticRegression(penalty='l2')
         model.fit(X_train, y_train)
         predicted = model.predict(X_test)
-        #print(model.coef_)
-        #print(model.get_params())
-        #print(model.transform(X_test[0:2]))
-        #print(predicted.tolist())
-        print("\t" "score: {}".format(model.score(X_test, y_test)))
-        print("\t" "POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
-        print("\t" "EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
         cm = confusion_matrix(y_test, predicted)
-        cm_df = pd.DataFrame(cm, index=['edible', 'poisonous'], columns=['predicted edible', 'predicted poisonous'])
-        print("\t" "confusion matrix:\n{}\n".format(cm_df))
+        cm_df = pd.DataFrame(cm, index=[LABEL_ACTUAL_POSITIVE, LABEL_ACTUAL_NEGATIVE], columns=[LABEL_PREDICTED_POSITIVE, LABEL_PREDICTED_NEGATIVE])
         if cm_combined is None:
             cm_combined = cm
         else:
             cm_combined += cm
-    cm_df = pd.DataFrame(cm_combined, index=['edible', 'poisonous'], columns=['predicted edible', 'predicted poisonous'])
-    print("combined confusion matrix:")
-    print(cm_df)
+        if verbose:
+            #print(model.coef_)
+            #print(model.get_params())
+            #print(model.transform(X_test[0:2]))
+            #print(predicted.tolist())
+            print("run {} of {}".format(n_run+1, n_iter))
+            print("\t" "score: {}".format(model.score(X_test, y_test)))
+            print("\t" "POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
+            print("\t" "EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
+            print("\t" "confusion matrix:\n{}\n".format(cm_df))
+    cm_df = pd.DataFrame(cm_combined, index=[LABEL_ACTUAL_POSITIVE, LABEL_ACTUAL_NEGATIVE], columns=[LABEL_PREDICTED_POSITIVE, LABEL_PREDICTED_NEGATIVE])
+    if verbose:
+        print("combined confusion matrix:")
+        print(cm_df)
     return cm_df
 
-def test_all_features(X, y, column_names):
+def test_all_features(X, y, column_names, verbose=False):
     """Create and test a model using all available features."""
-    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names[1:])
-    cm_df = create_and_test_model(X_encoded, y)
+    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names)
+    cm_df = create_and_test_model(X_encoded, y, verbose=verbose)
+    return cm_df
 
-def test_n_features(X, y):
+def test_n_features(X, y, column_names, n_features=1, verbose=False):
+    """Choose n_features at a time and run the model based only on those features.
+    Return a dictionary mapping tuples of feature names to confusion matrix."""
+    confusion_matrix_dict = {}
+    for feature_names in itertools.combinations(column_names, n_features):
+        feature_names = list(feature_names) # make pandas happy
+        X, X_encoded, X_vectorizer = one_hot_dataframe(X, feature_names)
+        cm_df = create_and_test_model(X_encoded, y, verbose=verbose)
+        print("features: {}".format(feature_names))
+        print("confusion matrix:\n{}\n\n".format(cm_df))
+        confusion_matrix_dict[tuple(feature_names)] = cm_df
+    return confusion_matrix_dict
+
 def main(verbose=False):
-    X, y = get_data(data_filepath, column_names)
-    test_all_features(X, y, column_names)
+    X, y = get_data(data_filepath, csv_column_names)
+    test_all_features(X, y, csv_column_names[1:])
+    confusion_matrix_dict = test_n_features(X, y, csv_column_names[1:], n_features=1)
+    plot_confusion_matrix_dict(confusion_matrix_dict)
 
 if __name__=='__main__':
     main(verbose=True)
