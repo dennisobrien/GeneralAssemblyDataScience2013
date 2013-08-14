@@ -61,34 +61,39 @@ def one_hot_dataframe(df, column_names, replace=False):
         df = df.join(vectorized_df)
     return (df, vectorized_df, vectorizer)
 
-def create_model(X, y, n_iter=10, test_size=0.1):
+def create_and_test_model(X, y, n_iter=10, test_size=0.1, random_state=RANDOM_SEED):
+    """Create a model and test using n-fold cross validation.
+    Pass random_state=None to override the fixed random seed.
+    """
     # split the data in train and test using shuffle and split
     # create an iterator that generates boolean indices for each train/test run
     ss_iter = cross_validation.ShuffleSplit(len(X), 
                                             n_iter=n_iter, 
                                             test_size=test_size, 
                                             indices=False, 
-                                            random_state=RANDOM_SEED)
+                                            random_state=random_state)
     cm_combined = None
-    for train_indices, test_indices in ss_iter:
+    for n_run, (train_indices, test_indices) in enumerate(ss_iter):
+        print("run {} of {}".format(n_run+1, n_iter))
         # converting these to lists is much faster than leaving in Pandas DataFrame or Series
         X_train = X[train_indices].to_records(index=False).tolist()
         y_train = y[train_indices].tolist()
         X_test = X[test_indices].to_records(index=False).tolist()
         y_test = y[test_indices].tolist()
-        print(y_test)
-        model = LogisticRegression()
+        #print(y_test)
+        model = LogisticRegression(penalty='l2')
         model.fit(X_train, y_train)
         predicted = model.predict(X_test)
         #print(model.coef_)
         #print(model.get_params())
         #print(model.transform(X_test[0:2]))
         #print(predicted.tolist())
-        print(model.score(X_test, y_test))
-        print("POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
-        print("EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
+        print("\t" "score: {}".format(model.score(X_test, y_test)))
+        print("\t" "POISONOUS: {}".format(sum([val=='POISONOUS' for val in y_test])))
+        print("\t" "EDIBLE:    {}".format(sum([val=='EDIBLE' for val in y_test])))
         cm = confusion_matrix(y_test, predicted)
-        print(cm)
+        cm_df = pd.DataFrame(cm, index=['edible', 'poisonous'], columns=['predicted edible', 'predicted poisonous'])
+        print("\t" "confusion matrix:\n{}\n".format(cm_df))
         if cm_combined is None:
             cm_combined = cm
         else:
@@ -96,11 +101,17 @@ def create_model(X, y, n_iter=10, test_size=0.1):
     cm_df = pd.DataFrame(cm_combined, index=['edible', 'poisonous'], columns=['predicted edible', 'predicted poisonous'])
     print("combined confusion matrix:")
     print(cm_df)
+    return cm_df
 
+def test_all_features(X, y, column_names):
+    """Create and test a model using all available features."""
+    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names[1:])
+    cm_df = create_and_test_model(X_encoded, y)
+
+def test_n_features(X, y):
 def main(verbose=False):
     X, y = get_data(data_filepath, column_names)
-    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names[1:])
-    create_model(X_encoded, y)
+    test_all_features(X, y, column_names)
 
 if __name__=='__main__':
     main(verbose=True)
