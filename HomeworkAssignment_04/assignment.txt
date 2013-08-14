@@ -1,0 +1,28 @@
+Homework 4: Logistic Regression
+
+Due: Saturday, August 3, 2013 at 11:59 pm
+Homework Assignment 
+
+Create a logistic regression model using several independent variables. (40 points)
+
+As with the linear regression exercise, you can pick your data set, but 
+
+- It must be a new dataset you've never used before (10 points), and 
+- You must include it with your submission or provide a URL where we can download it.
+
+It should be a complete, self-contained script with the following features:
+
+- An n-fold cross validation framework (20 points)
+- Seeting a seed in the appropriate place (10 points)
+- It's well commented, and has a brief description at the end about the trends you see (20 points)
+
+Let me know if you have any questions about this!
+
+Extra Resources for Logistic Regression
+
+Vanderbilt logistic regression slides:
+http://www.mc.vanderbilt.edu/gcrc/workshop_files/2004-11-12.pdf
+
+Interpreting odds ratios:
+http://www.ats.ucla.edu/stat/stata/faq/oratio.htm
+http://www.ats.ucla.edu/stat/mult_pkg/faq/general/odds_ratio.htm
