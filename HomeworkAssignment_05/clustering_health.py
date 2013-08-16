@@ -27,6 +27,9 @@ def get_datafile():
             print("downloaded to {}".format(filepath))
     return filepath
 
+def get_code_to_name_map(df):
+    return {key: value for (key, value), _group in df[['Indicator Code', 'Indicator Name']].groupby(['Indicator Code', 'Indicator Name'])}
+
 def main():
     data_filepath = get_datafile()
     df = pd.read_excel(data_filepath, 'Sheet1')
