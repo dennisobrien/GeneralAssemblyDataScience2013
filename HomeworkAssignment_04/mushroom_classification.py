@@ -20,6 +20,7 @@ import pandas as pd
 from sklearn import cross_validation
 from sklearn import preprocessing
 from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_selection import SelectKBest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix
 
@@ -169,12 +170,71 @@ def test_n_features(X, y, column_names, n_features=1, verbose=False):
         confusion_matrix_dict[tuple(feature_names)] = cm_df
     return confusion_matrix_dict
 
+def get_n_best_features(X_train, y_train, X_test, n_features):
+    # FIXME: This could be more general by just returning the trained model
+    model = SelectKBest(k=n_features)
+    X_train_transformed = model.fit_transform(X_train, y_train)
+    X_test_transformed = model.transform(X_test)
+    mask = model.get_support()
+    return X_train_transformed, X_test_transformed, mask
+
+def test_top_features(X, y, column_names, n_features=10, verbose=False):
+    """Use SelectKBest to determine the most predictive features.
+    Then use the reduced version of the data to train and predict.
+    Return a dataframe of the confusion matrix.
+    """
+    X, X_encoded, X_vectorizer = one_hot_dataframe(X, column_names)
+    X_train, X_test, y_train, y_test = cross_validation.train_test_split(X_encoded,
+                                                                         y,
+                                                                         test_size=0.4,
+                                                                         random_state=RANDOM_SEED)
+    X_train_reduced, X_test_reduced, feature_mask = get_n_best_features(X_train, 
+                                                                        y_train, 
+                                                                        X_test,
+                                                                        n_features)
+    features = tuple(X_encoded.columns[feature_mask].tolist())
+    if verbose:
+        print("Using features: {}".format(features))
+    model = LogisticRegression(penalty='l2')
+    model.fit(X_train_reduced, y_train)
+    predicted = model.predict(X_test_reduced)
+    cm = confusion_matrix(y_test, predicted)
+    cm_df = pd.DataFrame(cm, index=[LABEL_ACTUAL_POSITIVE, LABEL_ACTUAL_NEGATIVE], columns=[LABEL_PREDICTED_POSITIVE, LABEL_PREDICTED_NEGATIVE])
+    if verbose:
+        print(cm_df)
+    return cm_df, features
+
+def test_top_features_in_range(X, y, column_names, min_features=1, max_features=10, verbose=False):
+    """Call test_top_features repeatedly with k_features in the range [min_features, max_features].
+    Return a dictionary mapping features (tuple) to confusion matrix (dataframe)
+    """
+    data = {}
+    for n_features in range(min_features, max_features+1):
+        cm_df, features = test_top_features(X, y, column_names, n_features=n_features, verbose=verbose)
+        data[features] = cm_df
+    return data
+
+def plot_top_features_dict(dct):
+    data = {}
+    features = dct.keys()
+    #data['n_features'] = [len(feature) for feature in features]
+    data['precision'] = [get_precision(dct[feature]) for feature in features]
+    data['recall'] = [get_recall(dct[feature]) for feature in features]
+    df = pd.DataFrame(data, index=[len(feature) for feature in features])
+    df.sort(inplace=True)
+    print(df)
+    df.plot(figsize=(10,8), 
+            title='Precision and Recall as a function of the Number of Features Selected',
+            ylim=(0.0, 1.0))
+
 def main(verbose=False):
     X, y = get_data(data_filepath, csv_column_names)
     test_all_features(X, y, csv_column_names[1:])
     confusion_matrix_dict = test_n_features(X, y, csv_column_names[1:], n_features=1)
     plot_confusion_matrix_dict(confusion_matrix_dict)
+    test_top_features(X, y, csv_column_names[1:])
 
 if __name__=='__main__':
     main(verbose=True)
+
 
