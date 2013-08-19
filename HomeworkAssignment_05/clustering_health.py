@@ -9,22 +9,99 @@ pandas  Version 0.12+
 xlrd    For Excel file reading.  (pip install xlrd)
 """
 
+from itertools import product
+import math
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pandas as pd
 import requests
+from sklearn import metrics
+from sklearn import preprocessing
+from sklearn.cluster import KMeans
 
 
-def plot_histograms_for_each_column(df,n_columns=3, indicator_map=None, 
-                                    n_points_threshold=20, verbose=False):
-    n_subplots = sum([df.count()[column_name] > n_points_threshold for column_name in df.columns])
-    n_rows = (n_subplots/n_columns) + 1
+np.random.seed(42)
+
+def cluster_kmeans(df, n_clusters=10, scale_data=True):
+    df = df.dropna()
+    data = df.as_matrix()
+    if scale_data:
+        scaler = preprocessing.StandardScaler().fit(data)
+        data = scaler.transform(data)
+    model = KMeans(init='k-means++', n_clusters=n_clusters, n_init=10)
+    labels = model.fit_predict(data)
+    #print("labels: {}".format(labels))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8,6))
+    for idx in range(n_clusters):
+        df[labels==idx].plot(x=df.columns[0], y=df.columns[1], style='.', ax=ax)
+    return fig
+
+def get_optimal_clusters(df, max_clusters=30, scale_data=True):
+    df = df.dropna()
+    data = df.as_matrix()
+    if scale_data:
+        scaler = preprocessing.StandardScaler().fit(data)
+        data = scaler.transform(data)
+    score_data = []
+    min_clusters = 2    # silhouette_score assumes there are at least two clusters
+    for n_clusters in range(min_clusters, max_clusters+1):
+        model = KMeans(init='k-means++', n_clusters=n_clusters, n_init=10)
+        labels = model.fit_predict(data)
+        #print("clusters: {}, labels: {}".format(n_clusters, labels))
+        score = metrics.silhouette_score(data, labels)#, metric='euclidean')
+        score_data.append({'n_clusters':n_clusters, 'silhouette_score':score})
+    score_df = pd.DataFrame(score_data)
+    ax = score_df.plot(x='n_clusters', y='silhouette_score')
+    ax.set_ylabel('silhouette_score')
+
+def plot_scatter_for_each_pair(df, x_column_names, y_column_names=None,
+                               n_columns=3,
+                               n_points_threshold=20,
+                               verbose=False):
+    if y_column_names is None:
+        y_column_names = df.columns
+    # figure out how many subplots we will be displaying
+    n_subplots = sum([min(df.count()[column_x], df.count()[column_y]) > n_points_threshold for column_x, column_y in product(x_column_names, y_column_names)])
+    n_rows = int(math.ceil(1.0 * n_subplots/n_columns))
     plot_width = 6
     plot_height = 4
     figsize = (plot_width*n_columns, plot_height*n_rows)
     fig, axes = plt.subplots(nrows=n_rows, ncols=n_columns, figsize=figsize)
     idx = 0
-    for column_name in df.columns:
+    for x_column_name in x_column_names:
+        for y_column_name in y_column_names:
+            title = "{} vs. {}".format(x_column_name, y_column_name)
+            try:
+                n_points = min(df.count()[x_column_name], df.count()[y_column_name])
+                if n_points >= n_points_threshold:
+                    i_row = idx / n_columns
+                    i_col = idx % n_columns
+                    idx += 1
+                    df.plot(x=x_column_name, y=y_column_name, style='.', title=title, ax=axes[i_row,i_col])
+                    axes[i_row, i_col].set_ylabel(y_column_name)
+                else:
+                    if verbose:
+                        print("too few points for {}: {}".format(y_column_name, n_points))
+            except KeyError:
+                if verbose:
+                    print "Error creating graph: {}".format(title)
+    plt.tight_layout()
+    return fig
+
+def plot_histograms_for_each_column(df, column_names=None, n_columns=3, indicator_map=None, 
+                                    n_points_threshold=20, verbose=False):
+    if column_names is None:
+        column_names = df.columns
+    # figure out how many subplots we will be displaying
+    n_subplots = sum([df.count()[column_name] > n_points_threshold for column_name in column_names])
+    n_rows = int(math.ceil(1.0 * n_subplots/n_columns))
+    plot_width = 6
+    plot_height = 4
+    figsize = (plot_width*n_columns, plot_height*n_rows)
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_columns, figsize=figsize)
+    idx = 0
+    for column_name in column_names:
         n_points = df.count()[column_name]
         if n_points >= n_points_threshold:
             i_row = idx / n_columns
@@ -34,12 +111,13 @@ def plot_histograms_for_each_column(df,n_columns=3, indicator_map=None,
                 column_description = indicator_map[column_name]
             else:
                 column_description = column_name
-            title = column_description
+            title = "\n(".join(column_description.split('('))
             df[column_name].hist(ax=axes[i_row,i_col])
             axes[i_row,i_col].set_title(title)
         else:
             if verbose:
                 print("Skipping {}, too few points: {}".format(column_name, n_points))
+    plt.tight_layout()
     return fig
 
 def get_datafile():
