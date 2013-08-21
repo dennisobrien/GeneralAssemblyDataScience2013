@@ -34,8 +34,12 @@ def cluster_kmeans(df, n_clusters=10, scale_data=True):
     #print("labels: {}".format(labels))
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8,6))
     for idx in range(n_clusters):
-        df[labels==idx].plot(x=df.columns[0], y=df.columns[1], style='.', ax=ax)
-    return fig
+        df[labels==idx].plot(x=df.columns[0], y=df.columns[1], style='.', label=idx, ax=ax)
+    ax.set_xlabel(df.columns[0])
+    ax.set_ylabel(df.columns[1])
+    ax.legend(loc='best')
+    df_clusters = pd.DataFrame([{'Country Code': country_code, 'label': label} for country_code, label in zip(df.index, labels)])
+    return fig, df_clusters
 
 def get_optimal_clusters(df, max_clusters=30, scale_data=True):
     df = df.dropna()
